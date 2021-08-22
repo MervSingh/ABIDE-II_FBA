@@ -1,0 +1,24 @@
+# SCRIPT TO CREATE GLASS BRAIN FROM POPULATION TEMPLATE - TO AID IN VISUALIZATION OF RESULTS
+
+# run in the terminal from the top of your subject folder
+
+# NYU 
+
+mrmath */dti_2/mask_in_template_space.mif mean mask_mean.mif
+mrgrid mask_mean.mif regrid -scale 4.0 mask_upsamp.mif
+mrfilter mask_upsamp.mif smooth -stdev 1 mask_upsamp_smooth.mif
+mrthreshold mask_upsamp_smooth.mif -abs 0.5 mask_upsamp_smooth_thresh.mif
+maskfilter mask_upsamp_smooth_thresh.mif dilate -npass 2 mask_upsamp_smooth_thresh_dilate.mif
+mrcalc mask_upsamp_smooth_thresh_dilate.mif mask_upsamp_smooth_thresh.mif -subtract outline_glass.mif
+maskfilter outline_glass.mif dilate glass_brain.mif
+
+
+# SDSU & TCD
+
+mrmath *//mask_in_template_space.mif mean mask_mean.mif
+mrgrid mask_mean.mif regrid -scale 4.0 mask_upsamp.mif
+mrfilter mask_upsamp.mif smooth -stdev 1 mask_upsamp_smooth.mif
+mrthreshold mask_upsamp_smooth.mif -abs 0.5 mask_upsamp_smooth_thresh.mif
+maskfilter mask_upsamp_smooth_thresh.mif dilate -npass 2 mask_upsamp_smooth_thresh_dilate.mif
+mrcalc mask_upsamp_smooth_thresh_dilate.mif mask_upsamp_smooth_thresh.mif -subtract outline_glass.mif
+maskfilter outline_glass.mif dilate glass_brain.mif
