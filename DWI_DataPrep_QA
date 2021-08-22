@@ -1,0 +1,190 @@
+
+QUALITY CONTROL - for all DATASETS to check if conversion from NIFTI TO MIF WAS SUCCESSFUL 
+
+******************************************************************************************
+
+# BROKEN (i.e. conversion using the original gardient direction (bvecs and bvals) files
+
+******************************************************************************************
+
+# convert nifti file to mif
+
+# SDSU & TCD
+foreach * : mrconvert IN/dti.nii.gz IN/dwi_broken.mif -fslgrad IN/dti.bvecs IN/dti.bvals
+
+# NYU
+foreach * : mrconvert IN/dti_2/dti.nii.gz IN/dti_2/dwi_broken.mif -fslgrad IN/dti_2/dti.bvecs IN/dti_2/dti.bvals
+
+
+# generate brain mask
+
+# SDSU & TCD
+foreach * : dwi2mask IN/dwi_broken.mif IN/mask_broken.mif
+
+
+# NYU
+foreach * : dwi2mask IN/dti_2/dwi_broken.mif IN/dti_2/mask_broken.mif
+
+
+# check dwi_broken and mask_broken images
+
+# SDSU & TCD
+for i in `ls -d *`; do echo $i; mrview $i/dwi_broken.mif -overlay.load $i/mask_broken.mif -mode 2; done
+
+# NYU
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_broken.mif -overlay.load $i/dti_2/mask_broken.mif -mode 2; done
+
+
+# run a quick DTI
+
+# SDSU & TCD
+foreach * : dwi2tensor IN/dwi_broken.mif - \| tensor2metric - -vec IN/vec_broken.mif
+foreach * : dwi2tensor IN/dwi_broken.mif - \| tensor2metric - -fa IN/fa_broken.mif
+
+# NYU
+foreach * : dwi2tensor IN/dti_2/dwi_broken.mif - \| tensor2metric - -vec IN/dti_2/vec_broken.mif -force 
+foreach * : dwi2tensor IN/dti_2/dwi_broken.mif - \| tensor2metric - -fa IN/dti_2/fa_broken.mif -force
+
+
+# check tensor alignments
+
+# SDSU & TCD
+for i in `ls -d *`; do echo $i; mrview $i/fa_broken.mif -fixel.load $i/vec_broken.mif; done
+
+# NYU
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/fa_broken.mif -fixel.load $i/dti_2/vec_broken.mif; done
+
+
+
+# run dwgrad check and output gradient files in mrtrix format
+
+# SDSU & TCD
+for i in `ls -d *`; do echo $i; dwigradcheck $i/dwi_broken.mif -mask $i/mask_broken.mif -export_grad_mrtrix $i/grad; done
+
+
+# NYU
+for i in `ls -d *`; do echo $i; dwigradcheck $i/dti_2/dwi_broken.mif -mask $i/dti_2/mask_broken.mif -export_grad_mrtrix $i/dti_2/grad; done
+
+
+******************************************************************************************
+
+# FIXED (i.e. conversion using the mrtrix-outputted gradient direction files)
+
+******************************************************************************************
+
+# convert nifti to mif
+
+# SDSU & TCD
+foreach * : mrconvert IN/dti.nii.gz IN/dwi_fixed.mif -grad IN/grad {USING OUTPUT FILES FROM -export_grad_mrtrix grad}
+
+# NYU
+foreach * : mrconvert IN/dti_2/dti.nii.gz IN/dti_2/dwi_fixed.mif -grad IN/dti_2/grad {USING OUTPUT FILES FROM -export_grad_mrtrix grad}
+
+
+
+# generate brain mask
+
+# SDSU & TCD
+foreach * : dwi2mask IN/dwi_fixed.mif IN/mask_fixed.mif 
+
+# NYU
+foreach * : dwi2mask IN/dti_2/dwi_fixed.mif IN/dti_2/mask_fixed.mif 
+
+
+
+# check dwi_fixed and mask_fixed images
+
+# SDSU & TCD
+for i in `ls -d *`; do echo $i; mrview $i/dwi_fixed.mif -overlay.load $i/mask_fixed.mif -mode 2; done
+
+# NYU
+for i in `ls -d *`; do echo $i; mrview $i/dwi_fixed.mif -overlay.load $i/mask_fixed.mif -mode 2; done
+
+
+
+# run quick DTI
+
+# SDSU & TCD
+foreach * : dwi2tensor IN/dwi_fixed.mif - \| tensor2metric - -vec IN/vec_fixed.mif 
+foreach * : dwi2tensor IN/dwi_fixed.mif - \| tensor2metric - -fa IN/fa_fixed.mif
+
+
+# NYU
+foreach * : dwi2tensor IN/dti_2/dwi_fixed.mif - \| tensor2metric - -vec IN/dti_2/vec_fixed.mif -force
+foreach * : dwi2tensor IN/dti_2/dwi_fixed.mif - \| tensor2metric - -fa IN/dti_2/fa_fixed.mif -force
+
+
+
+# check tensor alignments
+
+# SDSU & TCD
+for i in `ls -d *`; do echo $i; mrview $i/fa_fixed.mif -fixel.load $i/vec_fixed.mif -mode 2; done
+
+# NYU
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/fa_fixed.mif -fixel.load $i/dti_2/vec_fixed.mif -mode 2; done
+
+
+# run dwi gradcheck again
+
+# SDSU & TCD
+for i in `ls -d *`; do echo $i; dwigradcheck $i/dwi_fixed.mif -mask $i/mask_fixed.mif; done
+
+
+# NYU
+for i in `ls -d *`; do echo $i; dwigradcheck $i/dti_2/dwi_fixed.mif -mask $i/dti_2/mask_fixed.mif; done
+
+
+
+******************************************************************************************
+
+# VENETIAN BLINDINFG & ARTEFACT CHECKING
+
+******************************************************************************************
+
+# SDSU & TCD
+
+# RAW FILES
+for i in `ls -d *`; do echo $i; mrview $i/dwi_fixed.mif -mode 4; done
+
+# PREPROCESSED FILES - JUST TO DOUBLE CHECK
+for i in `ls -d *`; do echo $i; mrview $i/dwi_denoised_unringed_preproc.mif -mode 4; done
+
+
+# NYU DATASET
+
+# RAW FILES
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_fixed.mif -mode 4; done
+
+# PREPROCESSED FILES - JUST TO DOUBLE CHECK
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_denoised_unringed_preproc.mif -mode 4; done
+
+
+**********************************************************************************************************************
+
+# FRAMEWISE DISPLACMENT ESTIMATION
+
+**********************************************************************************************************************
+
+# SDSU & TCD
+
+# extract all non-b0 images and concatenate them into a single file in NIFTI format:
+for i in `ls -d *`; do echo $i; dwiextract $i/dwi_fixed.mif $i/dwi_fixed_no_b0s.nii.gz -no_bzero; done
+
+# run fsl motion outliers script
+#framewise displacement rate
+for i in `ls -d *`; do fsl_motion_outliers -i $i/dwi_fixed_no_b0s.nii.gz -o $i/confound_file -s $i/fd_$i.txt --fd; done
+mkdir ../motion
+for i in `ls -d *`; do cp $i/fd_$i.txt ../motion/fd_$i.txt; done
+
+
+# NYU DATASET
+
+# extract all non-b0 images and concatenate them into a single file in NIFTI format:
+for i in `ls -d *`; do echo $i; dwiextract $i/dti_2/dwi_fixed.mif $i/dti_2/dwi_fixed_no_b0s.nii.gz -no_bzero -force; done
+
+# run fsl motion outliers script
+#framewise displacement rate
+for i in `ls -d *`; do fsl_motion_outliers -i $i/dti_2/dwi_fixed_no_b0s.nii.gz -o $i/dti_2/confound_file -s $i/dti_2/fd_$i.txt --fd; done
+for i in `ls -d *`; do cp $i/dti_2/fd_$i.txt ../motion/fd_$i.txt; done
+
+******************************************************************************************
