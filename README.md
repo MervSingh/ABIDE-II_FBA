@@ -8,12 +8,12 @@ Project Status: [Active]
 
 Research team and Institutions: 
 
-Melissa Kirkovski -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
-Mervyn Singh -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
-Thijs Dhollander -- Murdoch Children’s Research Institute, Developmental Imaging; Melbourne, Australia
-Natalia Albein-Urios -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
-Peter Donaldson -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
-Peter Enticott -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
+1. Melissa Kirkovski -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
+2. Mervyn Singh -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
+3. Thijs Dhollander -- Murdoch Children’s Research Institute, Developmental Imaging; Melbourne, Australia
+4. Natalia Albein-Urios -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
+5. Peter Donaldson -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
+6. Peter Enticott -- Deakin University, Cognitive Neuroscience Unit, Geelong, Australia
 
 Users attemtping to run the scripts contained in this repository must have user access to the Monash M3 High Performance Computing Cluster (https://docs.massive.org.au/). Software required to run the analyses are contained in the "Modules.txt" file. For more information, please email Mervyn Singh: mervynsingh87@gmail.com.au
 
