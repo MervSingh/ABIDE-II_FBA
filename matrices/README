@@ -1,0 +1,11 @@
+This folder contains the design, contrast and file matrices to be used when conducting connectivity-based fixel-enhancement (CFE) analysis of tract-of-interest fixels within the ABIDE-II dataset. 
+
+For more information on the methodology of CFE-based analysis, please refer to the following primary sources:
+
+1. https://mrtrix.readthedocs.io/en/latest/reference/commands/fixelcfestats.html
+
+2. Raffelt, D. A., Smith, R. E., Ridgway, G. R., Tournier, J. D., Vaughan, D. N., Rose, S., ... & Connelly, A. (2015). 
+# Connectivity-based fixel enhancement: Whole-brain statistical analysis of diffusion MRI measures in the presence of crossing fibres. 
+# Neuroimage, 117, 40-55.
+
+For assistance, please contact mervynsingh87@gmail.com
