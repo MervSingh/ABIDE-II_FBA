@@ -1,0 +1,114 @@
+
+
+# NYU DATASET PRE-PROCESSING SCRIPTS
+
+
+******************************************************************************************************************************************************************
+
+# PRE-PROCESSING:
+
+******************************************************************************************************************************************************************
+
+1. Denoising:
+
+# denoising step
+foreach * : dwidenoise IN/dti_2/dwi_fixed.mif IN/dti_2/dwi_denoised.mif -mask IN/dti_2/mask_fixed.mif -noise IN/dti_2/noise.mif -force
+
+# calculate difference between raw and denoised image and save as a separate (residual) file
+foreach * : mrcalc IN/dti_2/dwi_fixed.mif IN/dti_2/dwi_denosied.mif -subtract IN/dti_2/residual.mif -force
+
+# view  denoised images
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_denoised.mif -mode 2; done
+
+
+
+2. Unringing: 
+
+***
+The -axes option to mrdegibbs is used to specify in which plane the slices were acquired. The -axes 0,1 in the example above refers to the x-y plane, which is appropriate for data consisting of a stack of axial slices (assuming a typical human scanner and subject). For typical human data, change this to -axes 0,2 for coronal slices or -axes 1,2 for sagittal slices.
+***
+
+foreach * : mrdegibbs IN/dti_2/dwi_denoised.mif IN/dti_2/dwi_denoised_unringed.mif -axes 0,1
+
+# calculate difference between denosied and unringed image and save separately
+foreach * : mrcalc IN/dti_2/dwi_denoised.mif IN/dti_2/dwi_denoised_unringed.mif -subtract IN/dti_2/residualUnringed.mif
+
+# view  unringed images
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_denoised_unringed.mif -mode 2; done
+
+
+
+
+3. Motion & distortion correction:
+
+# motion & distortion correction step
+
+# as we do not have any reverse-phase encoded b0 images in our dataset, we will not be performing susceptibility-induced distortion correction. Therefore, the simplest scenario is to (only) correct for motion and eddy current-induced distortions
+
+for i in 29177 29184 29189 29198 29205 29212 29218 29227 29233 29242 29250 29180 29185 29191 29199 29206 29213 29220 29228 29234 29243 29251 29181 29186 29193 29200 29208 29214 29224 29230 29235 29246 29252 29182 29187 29196 29202 29210 29215 29225 29231 29237 29248 29253 29183 29188 29197 29203 29211 29217 29226 29232 29241 29249 2925; do sbatch --cpus-per-task=8 --mem-per-cpu=8000 --time=08:00:00 --job-name=preproc --account=hz41 --output=/home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-NYU_1/subjects/${i}/dti_2/preproc-%j.out --mail-user=mervyn@deakin.edu.au --wrap="dwifslpreproc ${i}/dti_2/dwi_denoised_unringed.mif ${i}/dti_2/dwi_denoised_unringed_preproc.mif -pe_dir AP -rpe_none -force"; done
+
+***
+The -pe_dir option to dwifslpreproc is used to specify the phase encoding direction of the acquisition. The -pe_dir AP in the example above refers to an anterior-posterior phase encoding direction, which is relatively commonly used for acquiring human data. For typical human data, change this to -pe_dir LR for a left-right phase encoding direction or -pe_dir SI for a superior-inferior phase encoding direction.
+***
+
+
+
+# SDSU & TCD DATASETS PRE-PROCIESSING SCRIPTS
+
+
+******************************************************************************************************************************************************************
+
+# PRE-PROCESSING:
+
+******************************************************************************************************************************************************************
+
+1. Denoising:
+
+# denoising step
+foreach * : dwidenoise IN/dwi_fixed.mif IN/dwi_denoised.mif -mask IN/mask_fixed.mif -noise IN/noise.mif -force
+
+# calculate difference between raw and denoised image and save as a separate (residual) file
+foreach * : mrcalc IN/dwi_fixed.mif IN/dwi_denosied.mif -subtract IN/residual.mif -force
+
+# view  denoised images
+for i in `ls -d *`; do echo $i; mrview $i/dwi_denoised.mif -mode 2; done
+
+
+2. Unringing: 
+
+# unringing step
+
+foreach * : mrdegibbs IN/dwi_denoised.mif IN/dwi_denoised_unringed.mif -axes 0,1
+
+***
+The -axes option to mrdegibbs is used to specify in which plane the slices were acquired. The -axes 0,1 in the example above refers to the x-y plane, which is appropriate for data consisting of a stack of axial slices (assuming a typical human scanner and subject). For typical human data, change this to -axes 0,2 for coronal slices or -axes 1,2 for sagittal slices.
+***
+
+# calculate difference between denosied and unringed image and save separately
+foreach * : mrcalc IN/dwi_denoised.mif IN/dwi_denoised_unringed.mif -subtract IN/residualUnringed.mif
+
+# view  unringed images
+for i in `ls -d *`; do echo $i; mrview $i/dwi_denoised_unringed.mif -mode 2; done
+
+
+
+3. Motion & distortion correction:
+
+# motion & distortion correction step
+
+# as we do not have any reverse-phase encoded b0 images in our dataset, we will not be performing susceptibility-induced distortion correction. Therefore, the simplest scenario is to (only) correct for motion and eddy current-induced distortions
+
+#TCD
+for i in 29096 29100 29104 29109 29113 29117 29121 29125 29129 29134 29097 29101 29105 29110 29114 29118 29122 29126 29130 29135 29098 29102 29107 29111 29115 29119 29123 29127 29131 29136 29099 29103 29108 29112 29116 29120 29124 29128 29133 29137; do sbatch --cpus-per-task=4 --mem-per-cpu=4000 --time=04:00:00 --job-name=preproc --account=hz41 --output=/home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-TCD_1/subjects/${i}/preproc-%j.out --mail-user=mervyn@deakin.edu.au --wrap="dwifslpreproc ${i}/dwi_denoised_unringed.mif ${i}/dwi_denoised_unringed_preproc.mif -pe_dir AP -rpe_none -force"; done 
+
+
+#SDSU
+for i in 28853 28858 28863 28868 28874 28879 28886 28891 28896 28901 28906 28854 28859 28864 28870 28875 28880 28887 28892 28897 28902 28907 28855 28860 28865 28871 28876 28882 28888 28893 28898 28903 28908 28856 28861 28866 28872 28877 28883 28889 28894 28899 28904 28909 28857 28862 28867 28873 28878 28885 28890 28895 28900 28905; do sbatch --cpus-per-task=8 --mem-per-cpu=8000 --time=08:00:00 --job-name=preproc --account=hz41 --output=/home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-SDSU_1/subjects/${i}/preproc-%j.out --mail-user=mervyn@deakin.edu.au --wrap="dwifslpreproc ${i}/dwi_denoised_unringed.mif ${i}/dwi_denoised_unringed_preproc.mif -pe_dir AP -rpe_none -force"; done
+
+for i in 28869 28881 28884; do sbatch --cpus-per-task=8 --mem-per-cpu=8000 --time=08:00:00 --job-name=preproc --account=hz41 --output=/home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-SDSU_1/exclusions/bad-masks/${i}/preproc-%j.out --mail-user=mervyn@deakin.edu.au --wrap="dwifslpreproc ${i}/dwi_denoised_unringed.mif ${i}/dwi_denoised_unringed_preproc.mif -pe_dir AP -rpe_none -force"; done
+
+
+***
+The -pe_dir option to dwifslpreproc is used to specify the phase encoding direction of the acquisition. The -pe_dir AP in the example above refers to an anterior-posterior phase encoding direction, which is relatively commonly used for acquiring human data. For typical human data, change this to -pe_dir LR for a left-right phase encoding direction or -pe_dir SI for a superior-inferior phase encoding direction.
+***
+
