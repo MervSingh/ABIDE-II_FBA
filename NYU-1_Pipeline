@@ -1,0 +1,678 @@
+
+******************************************************************************************************************************************************************
+
+# PRE-PROCESSING:
+
+******************************************************************************************************************************************************************
+
+1. Denoising:
+
+# denoising step
+foreach * : dwidenoise IN/dti_2/dwi_fixed.mif IN/dti_2/dwi_denoised.mif -mask IN/dti_2/mask_fixed.mif -noise IN/dti_2/noise.mif -force
+# calculate difference between raw and denoised image and save as a separate (residual) file
+foreach * : mrcalc IN/dti_2/dwi_fixed.mif IN/dti_2/dwi_denosied.mif -subtract IN/dti_2/residual.mif -force
+# view  denoised images
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_denoised.mif -mode 2; done
+
+
+
+2. Unringing: 
+
+***
+The -axes option to mrdegibbs is used to specify in which plane the slices were acquired. The -axes 0,1 in the example above refers to the x-y plane, which is appropriate for data consisting of a stack of axial slices (assuming a typical human scanner and subject). For typical human data, change this to -axes 0,2 for coronal slices or -axes 1,2 for sagittal slices.
+***
+foreach * : mrdegibbs IN/dti_2/dwi_denoised.mif IN/dti_2/dwi_denoised_unringed.mif -axes 0,1
+# calculate difference between denosied and unringed image and save separately
+foreach * : mrcalc IN/dti_2/dwi_denoised.mif IN/dti_2/dwi_denoised_unringed.mif -subtract IN/dti_2/residualUnringed.mif
+# view  unringed images
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_denoised_unringed.mif -mode 2; done
+
+
+3. Motion & distortion correction:
+
+# motion & disotrtion correction step
+
+# as we do not have any reverse-phase encoded b0 images in our dataset, we will not be performing susceptibility-induced distortion correction. Therefore, the simplest scenario is to (only) correct for motion and eddy current-induced distortions
+
+for i in 29177 29184 29189 29198 29205 29212 29218 29227 29233 29242 29250 29180 29185 29191 29199 29206 29213 29220 29228 29234 29243 29251 29181 29186 29193 29200 29208 29214 29224 29230 29235 29246 29252 29182 29187 29196 29202 29210 29215 29225 29231 29237 29248 29253 29183 29188 29197 29203 29211 29217 29226 29232 29241 29249 2925; do sbatch --cpus-per-task=8 --mem-per-cpu=8000 --time=08:00:00 --job-name=preproc --account=hz41 --output=/home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-NYU_1/subjects/${i}/dti_2/preproc-%j.out --mail-user=mervyn@deakin.edu.au --wrap="dwifslpreproc ${i}/dti_2/dwi_denoised_unringed.mif ${i}/dti_2/dwi_denoised_unringed_preproc.mif -pe_dir AP -rpe_none -force"; done
+
+***
+The -pe_dir option to dwifslpreproc is used to specify the phase encoding direction of the acquisition. The -pe_dir AP in the example above refers to an anterior-posterior phase encoding direction, which is relatively commonly used for acquiring human data. For typical human data, change this to -pe_dir LR for a left-right phase encoding direction or -pe_dir SI for a superior-inferior phase encoding direction.
+***
+
+
+******************************************************************************************************************************************************************
+
+# SS3TCSD
+
+******************************************************************************************************************************************************************
+
+1. estimate response functions 
+
+for i in `ls -d *`; do dwi2response dhollander $i/dti_2/dwi_denoised_unringed_preproc.mif $i/response_wm.txt $i/response_gm.txt $i/response_csf.txt -voxels $i/dti_2/voxels.mif -force; done -force
+
+
+2. Regridding images
+
+#upsample DWI
+for i in `ls -d *`; do mrgrid $i/dti_2/dwi_denoised_unringed_preproc.mif regrid $i/dti_2/dwi_denoised_unringed_preproc_upsampled.mif -voxel 1.5 -force; done
+
+#upsample mask
+for i in `ls -d *`; do mrgrid $i/dti_2/mask_fixed.mif regrid - -template $i/dti_2/dwi_denoised_unringed_preproc_upsampled.mif -interp linear -datatype bit | maskfilter - median $i/dti_2/mask_upsampled.mif -force; done
+
+
+3. Group average response functions:
+
+# one triplet for each dataset
+
+responsemean */response_wm.txt ../group_average_response_wm.txt -force
+responsemean */response_gm.txt ../group_average_response_gm.txt -force
+responsemean */response_csf.txt ../group_average_response_csf.txt -force
+
+
+
+4. BEFORE RUNNING CSD - CHECK ALL UPSAMPELD MASKS TO ENSURE THEY COBNTAIN ALL RELEVANT BRAIN REGIONS OF INTEREST
+
+for i in `ls -d *`; do echo $i; mrview $i/dti_2/dwi_denoised_unringed_preproc_upsampled.mif -intensity_range -30,7000 -overlay.load $i/dti_2/mask_upsampled.mif -overlay.opacity 0.3 -mode 2 -size 1000,1000; done
+
+
+
+5. Run SS3TCSD for all subjects:
+
+for i in `ls -d *`; do sbatch --cpus-per-task=8 --mem-per-cpu=8000 --time=08:00:00 --job-name=3tissueRF --account=hz41 --output=/home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-NYU_1/subjects/QCed/$i/dti_2/3tissueRF-%j.out --mail-user=mervyn@deakin.edu.au --wrap="ss3t_csd_beta1 $i/dti_2/dwi_denoised_unringed_preproc_upsampled.mif ../group_average_response_wm.txt $i/dti_2/wmfod.mif ../group_average_response_gm.txt $i/dti_2/gm.mif ../group_average_response_csf.txt $i/dti_2/csf.mif -mask $i/dti_2/mask_upsampled.mif -force"; done
+
+
+
+6. Bias field and Intensity normalisation:
+
+for i in `ls -d *`; do mtnormalise $i/dti_2/wmfod.mif $i/dti_2/wmfod_norm.mif $i/dti_2/gm.mif $i/dti_2/gm_norm.mif $i/dti_2/csf.mif $i/dti_2/csf_norm.mif -mask $i/dti_2/mask_upsampled.mif -force; done
+
+
+7. Normed DEC FOD map generation:
+
+for i in `ls -d *`; do fod2dec $i/dti_2/wmfod_norm.mif $i/dti_2/decfod.mif -mask $i/dti_2/mask_upsampled.mif -force; done
+
+
+
+******************************************************************************************************************************************************************
+
+# POPULATION TEMPLATE:
+
+******************************************************************************************************************************************************************
+
+
+1. create separate template directories for wmfod_norm and mask images: 
+
+mkdir -p ../template/fod_input
+mkdir ../template/mask_input
+
+
+2. Symbolic link all FOD images (and masks) into a single input folder. To use the entire population to build the template:
+
+foreach * : ln -sr IN/dti_2/wmfod_norm.mif ../template/fod_input/PRE.mif
+foreach * : ln -sr IN/dti_2/mask_upsampled.mif ../template/mask_input/PRE.mif
+
+
+3. run the template building script in the directoriy with all your individual subjects: 02/04/2021
+
+sbatch --cpus-per-task=12 --mem-per-cpu=12000 --time=0-24:00:00 --job-name=poptemplate --account=hz41 --output=/home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-NYU_1/subjects/template/poptemplate-%j.out --mail-user=mervyn@deakin.edu.au --wrap="population_template ../template/fod_input -mask_dir ../template/mask_input ../template/wmfod_template.mif -voxel_size 1.5"
+
+
+4. Register FOD template to MNI (only necessary for tract seG. Otherwise, go down to Fixel mask (3-tissue CSD):
+
+mrconvert wmfod_template.mif wmfod_template_bad_strides.nii.gz -force
+mrconvert wmfod_template_bad_strides.nii.gz wmfod_template.nii.gz -strides -1,2,3,4 -force
+mrconvert wmfod_template.nii.gz l0image.nii.gz -coord 3 0 -force
+
+
+5. For the next step, go and get the MNI_FA_template file from the TractSeg folder that comes up when you download TractSEG:
+
+flirt -ref ../../../MNI_FA_template.nii.gz -in l0image.nii.gz -out l0image_MNI.nii.gz -omat wmfod_template_2_MNI.mat -dof 12
+transformconvert wmfod_template_2_MNI.mat l0image.nii.gz ../../../MNI_FA_template.nii.gz flirt_import wmfod_template_2_MNI.txt
+mrtransform wmfod_template.nii.gz -linear wmfod_template_2_MNI.txt -template ../../../MNI_FA_template.nii.gz wmfod_template_MNI.nii.gz -reorient_fod no
+mrconvert wmfod_template_MNI.nii.gz wmfod_template_MNI.mif
+
+
+6. Register all subject FOD images to the FOD template:
+This starts the process for normalising the individual upsampled normalised FOD maps into the population standard space (i.e population template) - Create a translation file so that you can get participant fods into template space: 
+
+for i in `ls -d *`; do sbatch --cpus-per-task=16 --mem-per-cpu=16000 --time=0-04:00:00 --job-name=registerFOD --account=hz41 --output=//home/mervyns/hz41_scratch/ABIDEII-datasets/ABIDEII-NYU_1/subjects/QCed/$i/dti_2/registerFOD-%j.out --mail-user=mervyn@deakin.edu.au --wrap="mrregister $i/dti_2/wmfod_norm.mif -mask1 $i/dti_2/mask_upsampled.mif ../template/wmfod_template_MNI.mif -nl_warp $i/dti_2/subject2template_warp.mif $i/dti_2/template2subject_warp.mif -force"; done
+
+
+7. Compute the template mask (intersection of all subject masks in template space): Put all participant dwi masks into template space
+
+for i in `ls -d *`; do mrtransform $i/dti_2/mask_upsampled.mif -warp $i/dti_2/subject2template_warp.mif -interp nearest -datatype bit $i/dti_2/mask_in_template_space.mif -force; done
+
+
+8. Get average template mask (this should also tell you how many images were included in generating the average)
+
+mrmath */*/mask_in_template_space.mif min ../template/template_mask.mif -datatype bit -force
+
+
+9. Get sum of template mask (this should also tell you how many images were included in generating the total)
+
+mrmath */*/mask_in_template_space.mif sum ../template/template_mask_sum.mif -datatype bit -force
+
+
+10. Compute a white matter template analysis fixel mask (I do multiple at different peak values ot get a good sense of how many fixels are appropriate)
+
+fod2fixel -mask ../template/template_mask.mif -fmls_peak_value 0.04 ../template/wmfod_template_MNI.mif ../template/fixel_mask_04
+mrinfo -size ../template/fixel_mask_04/directions.mif
+fod2fixel -mask ../template/template_mask.mif -fmls_peak_value 0.06 ../template/wmfod_template_MNI.mif ../template/fixel_mask_06
+mrinfo -size ../template/fixel_mask_06/directions.mif
+fod2fixel -mask ../template/template_mask.mif -fmls_peak_value 0.08 ../template/wmfod_template_MNI.mif ../template/fixel_mask_08
+mrinfo -size ../template/fixel_mask_08/directions.mif
+fod2fixel -mask ../template/template_mask.mif -fmls_peak_value 0.09 ../template/wmfod_template_MNI.mif ../template/fixel_mask_09
+mrinfo -size ../template/fixel_mask_09/directions.mif
+fod2fixel -mask ../template/template_mask.mif -fmls_peak_value 0.1 ../template/wmfod_template_MNI.mif ../template/fixel_mask_1
+mrinfo -size ../template/fixel_mask_1/directions.mif
+fod2fixel -mask ../template/template_mask.mif -fmls_peak_value 0.2 ../template/wmfod_template_MNI.mif ../template/fixel_mask_2
+mrinfo -size ../template/fixel_mask_2/directions.mif
+
+
+
+## I'VE DECIDED TO GO WITH THE DEFAULT PEAK VALUE OF 0.1 (551,427)
+
+
+11. Warp FOD images to template space: 2/4/21
+
+for i in `ls -d *`; do mrtransform $i/dti_2/wmfod_norm.mif -warp $i/dti_2/subject2template_warp.mif -reorient_fod no $i/dti_2/fod_in_template_space_NOT_REORIENTED.mif -force; done
+
+
+*** 24.07.2021 ***
+
+12. Segment FOD images to estimate fixels and their apparent fibre density (FD):
+
+for i in `ls -d *`; do fod2fixel -mask ../template/template_mask.mif $i/dti_2/fod_in_template_space_NOT_REORIENTED.mif $i/dti_2/fixel_in_template_space_NOT_REORIENTED -afd fd.mif -force; done
+
+
+
+13. Reorient fixels:
+
+for i in `ls -d *`; do fixelreorient $i/dti_2/fixel_in_template_space_NOT_REORIENTED $i/dti_2/subject2template_warp.mif $i/dti_2/fixel_in_template_space -force; done
+
+
+
+14. Assign subject fixels to template fixels:
+
+foreach * : fixelcorrespondence IN/dti_2/fixel_in_template_space/fd.mif ../template/fixel_mask_1 ../template/fd PRE.mif -force
+
+
+
+15. Compute the fibre cross-section (FC) metric:
+
+foreach * : warp2metric IN/dti_2/subject2template_warp.mif -fc ../template/fixel_mask_1 ../template/fc IN.mif -force
+
+
+16. Compute the log FC:
+
+mkdir ../template/log_fc
+cp ../template/fc/index.mif ../template/fc/directions.mif ../template/log_fc
+foreach * : mrcalc ../template/fc/IN.mif -log ../template/log_fc/IN.mif -force
+
+
+17. Compute a combined measure of fibre density and cross-section (FDC):
+
+mkdir ../template/fdc
+cp ../template/fc/index.mif ../template/fdc
+cp ../template/fc/directions.mif ../template/fdc
+foreach * : mrcalc ../template/fd/IN.mif ../template/fc/IN.mif -mult ../template/fdc/IN.mif -force
+
+
+18. Generate all 72 tracts using tractseg
+
+sh2peaks wmfod_template_MNI.nii.gz wmfod_template_peaks.nii.gz -force 
+TractSeg -i wmfod_template_peaks.nii.gz --output_type tract_segmentation 
+TractSeg -i wmfod_template_peaks.nii.gz --output_type endings_segmentation
+TractSeg -i wmfod_template_peaks.nii.gz --output_type TOM
+Tracking -i wmfod_template_peaks.nii.gz --tracking_dilation 1 --tracking_format tck --nr_fibers 10000
+
+
+
+******************************************************************************************************************************************************************
+
+# TRACT-SPECIFIC FIXEL MASKS:
+
+******************************************************************************************************************************************************************
+
+
+1. Make the following directories in the template folder and paste the track files in each directory:
+
+mkdir fixel_masks_fd
+mkdir fixel_masks_logfc
+mkdir fixel_masks_fdc
+
+
+
+2. Create FD fixel masks for each tract
+
+cd fixel_masks_fd
+
+#Corpus callosum:
+
+tck2fixel CC_1.tck ../fd TDI_CC_1 CC_1_TDI.mif
+fixelcrop ../fd TDI_CC_1/CC_1_TDI.mif fd_CC_1
+tck2fixel CC_2.tck ../fd TDI_CC_2 CC_2_TDI.mif
+fixelcrop ../fd TDI_CC_2/CC_2_TDI.mif fd_CC_2
+tck2fixel CC_3.tck ../fd TDI_CC_3 CC_3_TDI.mif
+fixelcrop ../fd TDI_CC_3/CC_3_TDI.mif fd_CC_3
+tck2fixel CC_4.tck ../fd TDI_CC_4 CC_4_TDI.mif
+fixelcrop ../fd TDI_CC_4/CC_4_TDI.mif fd_CC_4
+tck2fixel CC_5.tck ../fd TDI_CC_5 CC_5_TDI.mif
+fixelcrop ../fd TDI_CC_5/CC_5_TDI.mif fd_CC_5
+tck2fixel CC_6.tck ../fd TDI_CC_6 CC_6_TDI.mif
+fixelcrop ../fd TDI_CC_6/CC_6_TDI.mif fd_CC_6
+tck2fixel CC_7.tck ../fd TDI_CC_7 CC_7_TDI.mif
+fixelcrop ../fd TDI_CC_7/CC_7_TDI.mif fd_CC_7
+tck2fixel CC.tck ../fd TDI_CC CC_TDI.mif
+fixelcrop ../fd TDI_CC/CC_TDI.mif fd_CC
+
+
+3. Create FC fixel masks for each tract
+
+cd fixel_masks_logfc
+
+#Corpus callosum:
+
+tck2fixel CC_1.tck ../log_fc TDI_CC_1 CC_1_TDI.mif
+fixelcrop ../log_fc TDI_CC_1/CC_1_TDI.mif logfc_CC_1
+tck2fixel CC_2.tck ../log_fc TDI_CC_2 CC_2_TDI.mif
+fixelcrop ../log_fc TDI_CC_2/CC_2_TDI.mif logfc_CC_2
+tck2fixel CC_3.tck ../log_fc TDI_CC_3 CC_3_TDI.mif
+fixelcrop ../log_fc TDI_CC_3/CC_3_TDI.mif logfc_CC_3
+tck2fixel CC_4.tck ../log_fc TDI_CC_4 CC_4_TDI.mif
+fixelcrop ../log_fc TDI_CC_4/CC_4_TDI.mif logfc_CC_4
+tck2fixel CC_5.tck ../log_fc TDI_CC_5 CC_5_TDI.mif
+fixelcrop ../log_fc TDI_CC_5/CC_5_TDI.mif logfc_CC_5
+tck2fixel CC_6.tck ../log_fc TDI_CC_6 CC_6_TDI.mif
+fixelcrop ../log_fc TDI_CC_6/CC_6_TDI.mif logfc_CC_6
+tck2fixel CC_7.tck ../log_fc TDI_CC_7 CC_7_TDI.mif
+fixelcrop ../log_fc TDI_CC_7/CC_7_TDI.mif logfc_CC_7
+tck2fixel CC.tck ../log_fc TDI_CC CC_TDI.mif
+fixelcrop ../log_fc TDI_CC/CC_TDI.mif logfc_CC
+
+
+4. Create FDC fixel masks for each tract
+
+cd fixel_masks_fdc
+
+#Corpus callosum:
+
+tck2fixel CC_1.tck ../fdc TDI_CC_1 CC_1_TDI.mif
+fixelcrop ../fdc TDI_CC_1/CC_1_TDI.mif fdc_CC_1
+tck2fixel CC_2.tck ../fdc TDI_CC_2 CC_2_TDI.mif
+fixelcrop ../fdc TDI_CC_2/CC_2_TDI.mif fdc_CC_2
+tck2fixel CC_3.tck ../fdc TDI_CC_3 CC_3_TDI.mif
+fixelcrop ../fdc TDI_CC_3/CC_3_TDI.mif fdc_CC_3
+tck2fixel CC_4.tck ../fdc TDI_CC_4 CC_4_TDI.mif
+fixelcrop ../fdc TDI_CC_4/CC_4_TDI.mif fdc_CC_4
+tck2fixel CC_5.tck ../fdc TDI_CC_5 CC_5_TDI.mif
+fixelcrop ../fdc TDI_CC_5/CC_5_TDI.mif fdc_CC_5
+tck2fixel CC_6.tck ../fdc TDI_CC_6 CC_6_TDI.mif
+fixelcrop ../fdc TDI_CC_6/CC_6_TDI.mif fdc_CC_6
+tck2fixel CC_7.tck ../fdc TDI_CC_7 CC_7_TDI.mif
+fixelcrop ../fdc TDI_CC_7/CC_7_TDI.mif fdc_CC_7
+tck2fixel CC.tck ../fdc TDI_CC CC_TDI.mif
+fixelcrop ../fdc TDI_CC/CC_TDI.mif fdc_CC
+
+
+
+******************************************************************************************************************************************************************
+
+# STATISTICAL ANALYSIS
+
+******************************************************************************************************************************************************************
+
+## ENTIRE CC
+
+# FD
+cd  fixel_masks_fd
+fixelcfestats fd_CC ../subjects.txt ../design_matrix_nyu.txt ../contrast_matrix.txt CC.tck stats_fd_CC -negative -force
+
+# FC
+cd  fixel_masks_logfc
+fixelcfestats logfc_CC ../subjects.txt ../design_matrix_nyu.txt ../contrast_matrix.txt CC.tck stats_logfc_CC -negative -force
+
+# FDC
+cd  fixel_masks_fdc
+fixelcfestats fdc_CC ../subjects.txt ../design_matrix_nyu.txt ../contrast_matrix.txt CC.tck stats_fdc_CC -negative -force
+
+
+fixel2tsf fwe_pvalue.mif ../CC.tck fwe_pvalue.tsf -force
+fixel2tsf uncorrected_pvalue.mif ../CC.tck uncorrected_pvalue.tsf -force
+fixel2tsf tvalue.mif ../CC.tck tvalue.tsf -force
+fixel2tsf fwe_pvalue_neg.mif ../CC.tck fwe_pvalue_neg.tsf -force
+fixel2tsf uncorrected_pvalue_neg.mif ../CC.tck uncorrected_pvalue_neg.tsf -force
+
+
+
+
+## ENTIRE CC
+
+# AGE ANALYSIS 
+
+# FD
+cd  fixel_masks_fd
+fixelcfestats fd_CC ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age.txt CC.tck stats_age_fd_CC -negative -force
+
+# FC
+cd  fixel_masks_logfc
+fixelcfestats logfc_CC ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age.txt CC.tck stats_age_logfc_CC -negative -force
+
+# FDC
+cd  fixel_masks_fdc
+fixelcfestats fdc_CC ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age.txt CC.tck stats_age_fdc_CC -negative -force
+
+
+fixel2tsf fwe_pvalue.mif ../CC.tck fwe_pvalue.tsf -force
+fixel2tsf uncorrected_pvalue.mif ../CC.tck uncorrected_pvalue.tsf -force
+fixel2tsf tvalue.mif ../CC.tck tvalue.tsf -force
+fixel2tsf fwe_pvalue_neg.mif ../CC.tck fwe_pvalue_neg.tsf -force
+fixel2tsf uncorrected_pvalue_neg.mif ../CC.tck uncorrected_pvalue_neg.tsf -force
+
+
+
+# AGE POSITIVE ANALYSIS
+
+# ENTIRE CC
+
+# FD
+cd  fixel_masks_fd
+fixelcfestats fd_CC ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC.tck stats_agepos_fd_CC -negative -force
+
+# FC
+cd  fixel_masks_logfc
+fixelcfestats logfc_CC ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC.tck stats_agepos_logfc_CC -negative -force
+
+# FDC
+cd  fixel_masks_fdc
+fixelcfestats fdc_CC ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC.tck stats_agepos_fdc_CC -negative -force
+
+
+fixel2tsf fwe_pvalue.mif ../CC.tck fwe_pvalue.tsf -force
+fixel2tsf uncorrected_pvalue.mif ../CC.tck uncorrected_pvalue.tsf -force
+fixel2tsf tvalue.mif ../CC.tck tvalue.tsf -force
+fixel2tsf fwe_pvalue_neg.mif ../CC.tck fwe_pvalue_neg.tsf -force
+fixel2tsf uncorrected_pvalue_neg.mif ../CC.tck uncorrected_pvalue_neg.tsf -force
+
+
+
+# FOR EACH SUB-SECTION
+
+#CC 1-7 FD
+cd fixel_masks_fd
+fixelcfestats fd_CC_1 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_1.tck stats_agepos_fd_CC_1 -negative -force
+fixelcfestats fd_CC_2 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_2.tck stats_agepos_fd_CC_2 -negative -force
+fixelcfestats fd_CC_3 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_3.tck stats_agepos_fd_CC_3 -negative -force
+fixelcfestats fd_CC_4 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_4.tck stats_agepos_fd_CC_4 -negative -force
+fixelcfestats fd_CC_5 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_5.tck stats_agepos_fd_CC_5 -negative -force
+fixelcfestats fd_CC_6 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_6.tck stats_agepos_fd_CC_6 -negative -force
+fixelcfestats fd_CC_7 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_7.tck stats_agepos_fd_CC_7 -negative -force
+
+
+#CC 1-7 LOGFC
+cd  fixel_masks_logfc
+fixelcfestats logfc_CC_1 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_1.tck stats_agepos_logfc_CC_1 -negative -force
+fixelcfestats logfc_CC_2 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_2.tck stats_agepos_logfc_CC_2 -negative -force
+fixelcfestats logfc_CC_3 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_3.tck stats_agepos_logfc_CC_3 -negative -force
+fixelcfestats logfc_CC_4 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_4.tck stats_agepos_logfc_CC_4 -negative -force
+fixelcfestats logfc_CC_5 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_5.tck stats_agepos_logfc_CC_5 -negative -force
+fixelcfestats logfc_CC_6 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_6.tck stats_agepos_logfc_CC_6 -negative -force
+fixelcfestats logfc_CC_7 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_7.tck stats_agepos_logfc_CC_7 -negative -force
+
+
+# CC 1-7 FDC
+cd  fixel_masks_fdc
+fixelcfestats fdc_CC_1 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_1.tck stats_agepos_fdc_CC_1 -negative -force
+fixelcfestats fdc_CC_2 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_2.tck stats_agepos_fdc_CC_2 -negative -force
+fixelcfestats fdc_CC_3 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_3.tck stats_agepos_fdc_CC_3 -negative -force
+fixelcfestats fdc_CC_4 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_4.tck stats_agepos_fdc_CC_4 -negative -force
+fixelcfestats fdc_CC_5 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_5.tck stats_agepos_fdc_CC_5 -negative -force
+fixelcfestats fdc_CC_6 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_6.tck stats_agepos_fdc_CC_6 -negative -force
+fixelcfestats fdc_CC_7 ../subjects.txt ../design_matrix_age_nyu.txt ../contrast_matrix_age1.txt CC_7.tck stats_agepos_fdc_CC_7 -negative -force
+
+
+
+******************************************************************************************************************************************************************
+
+# EXTRACTING MEAN FBA VALUES
+
+******************************************************************************************************************************************************************
+
+
+
+# EXTRACT AVERAGE FBA VALUES FOR EACH SUBJECT
+
+
+# FIBRE DENSITY 
+
+# CC
+
+cd fixel_masks_fd/fd_CC
+mkdir meanFD_CC
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC/${i}_output.txt; done
+cat meanFD_CC/*_output.txt > NYU_meanFD_CC_output.txt
+
+
+
+# CC_1
+
+cd fixel_masks_fd/fd_CC_1
+mkdir meanFD_CC_1
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC_1/${i}_output.txt; done
+cat meanFD_CC_1/*_output.txt > NYU_meanFD_CC1_output.txt
+
+
+
+
+# CC_2
+
+cd fixel_masks_fd/fd_CC_2
+mkdir meanFD_CC_2
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC_2/${i}_output.txt; done
+cat meanFD_CC_2/*_output.txt > NYU_meanFD_CC2_output.txt
+
+
+
+
+# CC_3
+
+cd fixel_masks_fd/fd_CC_3
+mkdir meanFD_CC_3
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC_3/${i}_output.txt; done
+cat meanFD_CC_3/*_output.txt > NYU_meanFD_CC3_output.txt
+
+
+
+
+# CC_4
+
+cd fixel_masks_fd/fd_CC_4
+mkdir meanFD_CC_4
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC_4/${i}_output.txt; done
+cat meanFD_CC_4/*_output.txt > NYU_meanFD_CC4_output.txt
+
+
+
+# CC_5
+
+cd fixel_masks_fd/fd_CC_5
+mkdir meanFD_CC_5
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC_5/${i}_output.txt; done
+cat meanFD_CC_5/*_output.txt > NYU_meanFD_CC5_output.txt
+
+
+
+# CC_6
+
+cd fixel_masks_fd/fd_CC_6
+mkdir meanFD_CC_6
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC_6/${i}_output.txt; done
+cat meanFD_CC_6/*_output.txt > NYU_meanFD_CC6_output.txt
+
+
+
+# CC_7
+
+cd fixel_masks_fd/fd_CC_7
+mkdir meanFD_CC_7
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFD_CC_7/${i}_output.txt; done
+cat meanFD_CC_7/*_output.txt > NYU_meanFD_CC7_output.txt
+
+
+
+
+# FDC
+
+# CC
+
+cd fixel_masks_fdc/fdc_CC
+mkdir meanFDC_CC
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC/${i}_output.txt; done
+cat meanFDC_CC/*_output.txt > NYU_meanFDC_CC_output.txt
+
+
+
+# CC_1
+
+cd fixel_masks_fdc/fdc_CC_1
+mkdir meanFDC_CC_1
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC_1/${i}_output.txt; done
+cat meanFDC_CC_1/*_output.txt > NYU_meanFDC_CC1_output.txt
+
+
+
+
+# CC_2
+
+cd fixel_masks_fdc/fdc_CC_2
+mkdir meanFDC_CC_2
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC_2/${i}_output.txt; done
+cat meanFDC_CC_2/*_output.txt > NYU_meanFDC_CC2_output.txt
+
+
+
+
+# CC_3
+
+cd fixel_masks_fdc/fdc_CC_3
+mkdir meanFDC_CC_3
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC_3/${i}_output.txt; done
+cat meanFDC_CC_3/*_output.txt > NYU_meanFDC_CC3_output.txt
+
+
+
+
+# CC_4
+
+cd fixel_masks_fdc/fdc_CC_4
+mkdir meanFDC_CC_4
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC_4/${i}_output.txt; done
+cat meanFDC_CC_4/*_output.txt > NYU_meanFDC_CC4_output.txt
+
+
+
+# CC_5
+
+cd fixel_masks_fdc/fdc_CC_5
+mkdir meanFDC_CC_5
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC_5/${i}_output.txt; done
+cat meanFDC_CC_5/*_output.txt > NYU_meanFDC_CC5_output.txt
+
+
+
+# CC_6
+
+cd fixel_masks_fdc/fdc_CC_6
+mkdir meanFDC_CC_6
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC_6/${i}_output.txt; done
+cat meanFDC_CC_6/*_output.txt > NYU_meanFDC_CC6_output.txt
+
+
+
+# CC_7
+
+cd fixel_masks_fdc/fdc_CC_7
+mkdir meanFDC_CC_7
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanFDC_CC_7/${i}_output.txt; done
+cat meanFDC_CC_7/*_output.txt > NYU_meanFDC_CC7_output.txt
+
+
+
+
+# LOGFC
+
+# CC
+
+cd fixel_masks_logfc/logfc_CC
+mkdir meanLOGFC_CC
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC/${i}_output.txt; done
+cat meanLOGFC_CC/*_output.txt > NYU_meanLOGFC_CC_output.txt
+
+
+
+# CC_1
+
+cd fixel_masks_logfc/logfc_CC_1
+mkdir meanLOGFC_CC_1
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC_1/${i}_output.txt; done
+cat meanLOGFC_CC_1/*_output.txt > NYU_meanLOGFC_CC1_output.txt
+
+
+
+
+# CC_2
+
+cd fixel_masks_logfc/logfc_CC_2
+mkdir meanLOGFC_CC_2
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC_2/${i}_output.txt; done
+cat meanLOGFC_CC_2/*_output.txt > NYU_meanLOGFC_CC2_output.txt
+
+
+
+
+# CC_3
+
+cd fixel_masks_logfc/logfc_CC_3
+mkdir meanLOGFC_CC_3
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC_3/${i}_output.txt; done
+cat meanLOGFC_CC_3/*_output.txt > NYU_meanLOGFC_CC3_output.txt
+
+
+
+
+# CC_4
+
+cd fixel_masks_logfc/logfc_CC_4
+mkdir meanLOGFC_CC_4
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC_4/${i}_output.txt; done
+cat meanLOGFC_CC_4/*_output.txt > NYU_meanLOGFC_CC4_output.txt
+
+
+
+# CC_5
+
+cd fixel_masks_logfc/logfc_CC_5
+mkdir meanLOGFC_CC_5
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC_5/${i}_output.txt; done
+cat meanLOGFC_CC_5/*_output.txt > NYU_meanLOGFC_CC5_output.txt
+
+
+
+# CC_6
+
+cd fixel_masks_logfc/logfc_CC_6
+mkdir meanLOGFC_CC_6
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC_6/${i}_output.txt; done
+cat meanLOGFC_CC_6/*_output.txt > NYU_meanLOGFC_CC6_output.txt
+
+
+
+# CC_7
+
+cd fixel_masks_logfc/logfc_CC_7
+mkdir meanLOGFC_CC_7
+for i in 29177.mif 29187.mif 29203.mif 29217.mif 29231.mif 29243.mif 29181.mif 29188.mif 29205.mif 29218.mif 29233.mif 29254.mif 29182.mif 29191.mif 29206.mif 29220.mif 29234.mif 29183.mif 29193.mif 29210.mif 29226.mif 29235.mif 29184.mif 29196.mif 29211.mif 29227.mif 29237.mif 29185.mif 29198.mif 29212.mif 29228.mif 29241.mif 29186.mif 29200.mif 29214.mif 29230.mif 29242.mif; do echo ${i}; mrstats ${i} > meanLOGFC_CC_7/${i}_output.txt; done
+cat meanLOGFC_CC_7/*_output.txt > NYU_meanLOGFC_CC7_output.txt
+
+
