@@ -177,6 +177,41 @@ mkdir ../motion
 for i in `ls -d *`; do cp $i/fd_$i.txt ../motion/fd_$i.txt; done
 
 
+# CALCULATING MEAN FRAMEWISE DISPLACEMENT FOR EACH SUBJECT (IN R)
+
+#load up some libraries:
+
+library (reshape) #load reshape library
+library (Hmisc) #required for %nin%
+library (plyr) #required for ddply
+library(psych) #required for descriptives
+library(ggplot2) #required for plotting
+library(tidyverse) #suite of tidy packages
+library(ggpubr) #to create pub ready plots
+library(knitr) #to create beautiful tables
+
+# read all txt files into R
+temp = list.files(pattern="*.txt")
+for (i in 1:length(temp)) assign(temp[i], read.table(temp[i]))
+
+# remove first cell from each df - the first cell is not included in calculating FWD
+lst <- mget(ls(pattern='fd_'))
+lst <- lapply(lst, `[`, -c(1), )
+
+# put the newly created lists into a data frame
+df = as.data.frame(lst)
+
+# do summary stats for each subject
+sumstats = describe(df)
+
+#write.csv(sumstats, "{name of dataset}_FWD.csv", row.names = TRUE)
+
+
+
+******************
+
+
+
 # NYU DATASET
 
 # extract all non-b0 images and concatenate them into a single file in NIFTI format:
@@ -186,5 +221,36 @@ for i in `ls -d *`; do echo $i; dwiextract $i/dti_2/dwi_fixed.mif $i/dti_2/dwi_f
 #framewise displacement rate
 for i in `ls -d *`; do fsl_motion_outliers -i $i/dti_2/dwi_fixed_no_b0s.nii.gz -o $i/dti_2/confound_file -s $i/dti_2/fd_$i.txt --fd; done
 for i in `ls -d *`; do cp $i/dti_2/fd_$i.txt ../motion/fd_$i.txt; done
+
+
+# CALCULATING MEAN FRAMEWISE DISPLACEMENT FOR EACH SUBJECT (IN R)
+
+#load up some libraries:
+
+library (reshape) #load reshape library
+library (Hmisc) #required for %nin%
+library (plyr) #required for ddply
+library(psych) #required for descriptives
+library(ggplot2) #required for plotting
+library(tidyverse) #suite of tidy packages
+library(ggpubr) #to create pub ready plots
+library(knitr) #to create beautiful tables
+
+# read all txt files into R
+temp = list.files(pattern="*.txt")
+for (i in 1:length(temp)) assign(temp[i], read.table(temp[i]))
+
+# remove first cell from each df - the first cell is not included in calculating FWD
+lst <- mget(ls(pattern='fd_'))
+lst <- lapply(lst, `[`, -c(1), )
+
+# put the newly created lists into a data frame
+df = as.data.frame(lst)
+
+# do summary stats for each subject
+sumstats = describe(df)
+
+#write.csv(sumstats, "{name of dataset}_FWD.csv", row.names = TRUE)
+
 
 ******************************************************************************************
