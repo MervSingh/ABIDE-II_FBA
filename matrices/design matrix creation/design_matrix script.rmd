@@ -1,0 +1,76 @@
+---
+title: "Study1"
+author: "Mervyn Singh"
+date: "06/08/2020"
+output: md_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Install packages
+```{r, echo=FALSE, results='hide', include=FALSE}
+packages <- c("tidyverse","ggplot2","parallel","data.table","readxl","lme4","lmerTest", "mice", "psych", "reshape","Hmisc","plyr","ggpubr", "rstatix")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+lapply(packages, library, character.only = TRUE)
+```
+
+# design matrices prepping
+```{r,echo=TRUE, results='hide'}
+#load data
+tcd <- read_xlsx("TCD_DM.xlsx")
+nyu <- read_xlsx("NYU_DM.xlsx")
+sdsu <- read_xlsx("SDSU_DM.xlsx")
+
+#remove uneeded variables
+tcd1 <- tcd[ , c(3,6,9)]
+nyu1 <- nyu[ , c(3,6,9)]
+sdsu1 <- sdsu[ , c(3,6,9)]
+
+# write text files
+write.table(tcd1, file = "design_matrix_tcd.txt",row.names = F, col.names = F)
+write.table(nyu1, file = "design_matrix_nyu.txt",row.names = F, col.names = F)
+write.table(sdsu1, file = "design_matrix_sdsu.txt",row.names = F, col.names = F)
+```
+
+# design matrices prepping for AGE
+```{r,echo=TRUE, results='hide'}
+
+#remove uneeded variables
+tcd2 <- tcd[ , c(3,6,9,10)]
+nyu2 <- nyu[ , c(3,6,9,10)]
+sdsu2 <- sdsu[ , c(3,6,9,10)]
+
+# create z scores for AGE vars 
+tcd2 = tcd2 %>% mutate(AGE_AT_SCAN_Z = (AGE_AT_SCAN - mean(AGE_AT_SCAN))/sd(AGE_AT_SCAN)) %>%
+  mutate(AGE_AT_SCAN_Z = round(AGE_AT_SCAN_Z,5))
+
+nyu2 = nyu2 %>% mutate(AGE_AT_SCAN_Z = (AGE_AT_SCAN - mean(AGE_AT_SCAN))/sd(AGE_AT_SCAN)) %>%
+  mutate(AGE_AT_SCAN_Z = round(AGE_AT_SCAN_Z,5))
+
+sdsu2 = sdsu2 %>% mutate(AGE_AT_SCAN_Z = (AGE_AT_SCAN - mean(AGE_AT_SCAN))/sd(AGE_AT_SCAN)) %>%
+  mutate(AGE_AT_SCAN_Z = round(AGE_AT_SCAN_Z,5))
+
+# remove unstandardized age vars
+tcd2 = tcd2[-c(4)]
+nyu2 = nyu2[-c(4)]
+sdsu2 = sdsu2[-c(4)]
+
+# write text files
+write.table(tcd2, file = "design_matrix_age_tcd.txt",row.names = F, col.names = F)
+write.table(nyu2, file = "design_matrix_age_nyu.txt",row.names = F, col.names = F)
+write.table(sdsu2, file = "design_matrix_age_sdsu.txt",row.names = F, col.names = F)
+```
+
+#Session info
+```{r}
+sessionInfo()
+```
+```{r}
+#Save files
+save.image("abide_design_matrices.Rdata")
+```
+
